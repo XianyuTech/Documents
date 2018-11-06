@@ -1,0 +1,32 @@
+From 9c598ae2d74b48d533d6a5a563fafdd466543a6b Mon Sep 17 00:00:00 2001
+From: KyleWong <kang.wang1988@gmail.com>
+Date: Tue, 6 Nov 2018 20:12:46 +0800
+Subject: [PATCH] A workaround for devices where eglCreateContext might fail,
+ like "HUAWEI P6-T00, Android 4.2.2, API 17". See
+ "https://github.com/flutter/engine/pull/6358".
+
+---
+ shell/platform/android/android_context_gl.cc | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/shell/platform/android/android_context_gl.cc b/shell/platform/android/android_context_gl.cc
+index b61f4ec74..b31244eaa 100644
+--- a/shell/platform/android/android_context_gl.cc
++++ b/shell/platform/android/android_context_gl.cc
+@@ -66,6 +66,13 @@ static EGLResult<EGLSurface> CreateContext(EGLDisplay display,
+ 
+   EGLContext context = eglCreateContext(display, config, share, attributes);
+ 
++  if (context == EGL_NO_CONTEXT) {
++    EGLint last_error = eglGetError();
++    if (last_error == EGL_BAD_MATCH && share != EGL_NO_CONTEXT) {
++      context = eglCreateContext(display, config, EGL_NO_CONTEXT, attributes);
++    }
++  }
++
+   return {context != EGL_NO_CONTEXT, context};
+ }
+ 
+-- 
+2.17.1 (Apple Git-112)
+
