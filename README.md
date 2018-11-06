@@ -23,17 +23,17 @@
 
 ## 兼容性问题(中国市场)
 ### HUAWEI P6-T00 Android 4.2.2, API 17
-####现象
+#### 现象
 Flutter页面黑并且Crash
-####错误日志:
+#### 错误日志:
 ```
 [ERROR:flutter/shell/platform/android/android_context_gl.cc(187)] Could not create an EGL context[ERROR:flutter/shell/platform/android/android_context_gl.cc(53)] EGL Error: EGL_BAD_MATCH (12297)
 ```
-####解决方案:
+#### 解决方案:
 错误时的容错逻辑(不会影响之前正常的设备)
 参见patches/0001-A-workaround-for-devices-where-eglCreateContext-migh.patch
 
-####问题跟踪::
+#### 问题跟踪::
 https://github.com/flutter/engine/pull/6358
 
 
