@@ -23,19 +23,73 @@
 
 ## 兼容性问题(中国市场)
 ### HUAWEI P6-T00 Android 4.2.2, API 17
-####现象
+#### 问题
 Flutter页面黑并且Crash
-####错误日志:
+#### 错误日志:
 ```
 [ERROR:flutter/shell/platform/android/android_context_gl.cc(187)] Could not create an EGL context[ERROR:flutter/shell/platform/android/android_context_gl.cc(53)] EGL Error: EGL_BAD_MATCH (12297)
 ```
-####解决方案:
-错误时的容错逻辑(不会影响之前正常的设备)
-参见patches/0001-A-workaround-for-devices-where-eglCreateContext-migh.patch
+#### 问题分析:
+此款设备上OpenGL driver支持有问题，造成share context创建失败。
 
-####问题跟踪::
+#### 解决方案:
+在engine(engine/src/flutter)中添加错误时的容错逻辑(不会影响之前正常的设备)。参见:
+patches/0001-A-workaround-for-devices-where-eglCreateContext-migh.patch
+
+#### 问题跟踪::
 https://github.com/flutter/engine/pull/6358
 
+### Xiaomi MI PAD 2 Android5.1 API 22
+#### 问题1
+黑屏并且Crash
+#### 错误日志
+```
+[ERROR:flutter/shell/gpu/gpu_surface_gl.cc(55)] Failed to setup Skia Gr context.
+```
+#### 问题分析:
+此款设备上OpenGL driver支持有问题，造成skia中的验证逻辑因为GL_EXT_texture_buffer支持不完备而失败。
 
+#### 解决方案:
+移除skia(engine/src/third_party/skia)中对于GL_EXT_texture_buffer的判断逻辑，因为flutter中已不需要。参见:
+patches/0001-Comment-out-GL_EXT_texture_buffer-related-logic-whic.patch
 
+#### 问题跟踪
+https://github.com/flutter/flutter/issues/22353
 
+#### 问题2
+页面内容部分展示后，图片下载网络请求过程中奔溃
+
+#### 错误日志
+```
+00  pc 00c20310  /data/app/xxx/lib/arm/libflutter.so
+--- --- ---
+00 pc 00c20310  /data/app/com.taobao.idlefish.debug-1/lib/arm/libflutter.so
+01 pc 00bc6ee7  /data/app/com.taobao.idlefish.debug-1/lib/arm/libflutter.so
+符号化:src kylewong$ ./third_party/android_tools/ndk/toolchains/arm-linux-androideabi-4.9/prebuilt/darwin-x86_64/bin/arm-linux-androideabi-addr2line -e ./out/android_release_unopt/libflutter.so
+00c20310
+linux-atomic.c:?
+00c20310
+linux-atomic.c:?
+00bc6ee7
+/Users/kylewong/Codes/Flutter/beta/engine/src/out/android_release_unopt/../../third_party/boringssl/src/crypto/fipsmodule/cipher/e_aes.c:312
+```
+#### 问题分析:
+此款设备是Intel的Atom处理器，openSSL中的相关逻辑对其判断有问题，导致指令集支持判断失败导致奔溃。
+#### 解决方案
+在openssl中(engine/src/third_party/boringssl/src)添加对于此种处理器的处理逻辑。参见:
+patches/0001-arm-intel-emulation-layer.patch
+
+### HUAWEI Honor H30 4.2.2
+#### 问题
+Flutter页面黑并且Crash
+#### 错误日志:
+```
+[ERROR:flutter/shell/gpu/gpu_surface_gl.cc(55)] Failed to setup Skia Gr context.
+```
+#### 问题分析:
+此款设备上OpenGL driver支持有问题，造成skia中的验证逻辑因为GL_EXT_debug_marker支持不完备而失败。参阅https://www.khronos.org/registry/OpenGL/extensions/EXT/EXT_debug_marker.txt
+GL_EXT_debug_marker用于debug/profile时，用来改善OpenGL & OpenGL ES 开发工具中的用户体验。去除此段逻辑，对于Release模式没有影响，对于Debug/Profile模式，最多是性能诊断的时候，部分机型，可能会发生部分API在被调用时不支持导致异常的问题。
+
+#### 解决方案:
+移除skia(engine/src/third_party/skia)中对于GL_EXT_debug_marker的判断逻辑。参见:
+patches/0001-Remove-GL_EXT_debug_marker-related-logic-as-it-won-t.patch
