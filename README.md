@@ -79,7 +79,7 @@ linux-atomic.c:?
 在openssl中(engine/src/third_party/boringssl/src)添加对于此种处理器的处理逻辑。参见:
 patches/0001-arm-intel-emulation-layer.patch
 
-### HUAWEI Honor H30 4.2.2
+### HUAWEI H30-T00 Android 4.2.2 API 17
 #### 问题
 Flutter页面黑并且Crash
 #### 错误日志:
