@@ -1,0 +1,54 @@
+From fe22af87932617e1b47f246e749718912de3268e Mon Sep 17 00:00:00 2001
+From: KyleWong <kang.wang1988@gmail.com>
+Date: Sat, 10 Nov 2018 18:41:45 +0800
+Subject: [PATCH] Add a way to specify fonts in flutter(iOS), avoid the
+ best-match search logic.
+
+---
+ src/ports/SkFontHost_mac.cpp | 23 +++++++++++++++++++++++
+ 1 file changed, 23 insertions(+)
+
+diff --git a/src/ports/SkFontHost_mac.cpp b/src/ports/SkFontHost_mac.cpp
+index 85625ea210..3bf2820adf 100644
+--- a/src/ports/SkFontHost_mac.cpp
++++ b/src/ports/SkFontHost_mac.cpp
+@@ -17,6 +17,7 @@
+ #include <CoreText/CTFontManager.h>
+ #include <CoreGraphics/CoreGraphics.h>
+ #include <CoreFoundation/CoreFoundation.h>
++#include "flutter/fml/platform/darwin/platform_version.h"
+ #endif
+ 
+ #include "SkAdvancedTypefaceMetrics.h"
+@@ -840,6 +841,28 @@ static UniqueCFRef<CTFontDescriptorRef> create_descriptor(const char familyName[
+         }
+     }
+ 
++#ifdef SK_BUILD_FOR_IOS
++    if (fml::IsPlatformVersionAtLeast(9)) {
++        UniqueCFRef<CTFontRef> fontRefRegular(
++                (CTFontRef)CTFontDescriptorCreateWithNameAndSize(CFSTR("PingFangSC-Regular"), 0));
++        UniqueCFRef<CTFontRef> fontRefMedium(
++                (CTFontRef)CTFontDescriptorCreateWithNameAndSize(CFSTR("PingFangSC-Medium"), 0));
++        const void* descriptors[] = {fontRefRegular.get(), fontRefMedium.get()};
++        UniqueCFRef<CFArrayRef> list(
++                CFArrayCreate(kCFAllocatorDefault, descriptors, 1, &kCFTypeArrayCallBacks));
++        CFDictionaryAddValue(cfAttributes.get(), kCTFontCascadeListAttribute, list.get());
++    } else {
++        UniqueCFRef<CTFontRef> fontRefRegular(
++                (CTFontRef)CTFontDescriptorCreateWithNameAndSize(CFSTR("STHeitiSC-Light"), 0));
++        UniqueCFRef<CTFontRef> fontRefMedium(
++                (CTFontRef)CTFontDescriptorCreateWithNameAndSize(CFSTR("STHeitiSC-Medium"), 0));
++        const void* descriptors[] = {fontRefRegular.get(), fontRefMedium.get()};
++        UniqueCFRef<CFArrayRef> list(
++                CFArrayCreate(kCFAllocatorDefault, descriptors, 1, &kCFTypeArrayCallBacks));
++        CFDictionaryAddValue(cfAttributes.get(), kCTFontCascadeListAttribute, list.get());
++    }
++#endif
++
+     return UniqueCFRef<CTFontDescriptorRef>(
+             CTFontDescriptorCreateWithAttributes(cfAttributes.get()));
+ }
+-- 
+2.17.2 (Apple Git-113)
+

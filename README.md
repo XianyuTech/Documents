@@ -93,3 +93,21 @@ GL_EXT_debug_marker用于debug/profile时，用来改善OpenGL & OpenGL ES 开�
 #### 解决方案:
 移除skia(engine/src/third_party/skia)中对于GL_EXT_debug_marker的判断逻辑。参见:
 patches/0001-Remove-GL_EXT_debug_marker-related-logic-as-it-won-t.patch
+
+### iOS8 
+#### 问题
+系统语言设置成日文的情况下，部分汉字显示异常，成为小方格。
+#### 错误现象(以flutter_gallery为例)
+修复前:
+![修复前](http://gw.alicdn.com/mt/TB1OixZoMHqK1RjSZFPXXcwapXa-640-1136.png)
+修复后:
+![修复后](http://gw.alicdn.com/mt/TB1K_d4oNTpK1RjSZFMXXbG_VXa-640-1136.png)
+
+#### 问题分析:
+iOS中的font查找是采用CTFontCreateForString函数，结合当前字体和文本在全局级联表(多态的, 基于用户语言设置和当前字体)下进行匹配，这在需要指定字体的场景下是不适用的。
+
+因此可以采用kCTFontCascadeListAttribute指定所需的字体。
+
+#### 解决方案:
+在skia(engine/src/third_party/skia)中添加kCTFontCascadeListAttribute逻辑。参见:
+patches/0001-Add-a-way-to-specify-fonts-in-flutter-iOS-avoid-the-.patch
