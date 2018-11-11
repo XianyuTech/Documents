@@ -107,3 +107,19 @@ iOS中的font查找是采用CTFontCreateForString函数，结合当前字体和�
 #### 解决方案:
 在skia(engine/src/third_party/skia)中添加kCTFontCascadeListAttribute逻辑。参见:
 patches/0001-Add-a-way-to-specify-fonts-in-flutter-iOS-avoid-the-.patch
+
+### iOS上手势问题引起的flutter状态异常
+#### 问题
+Flutter页面点击事件在某些场景下失效
+#### 错误现象
+在某些场景下，如当Flutter页面与Native嵌套使用的时候，Flutter页面ListView中带小图可以点击查看大图(Push Native的ViewController展示)，大图上单击可以退出Native页面。这种场景下，连续两个手指点击会造成Flutter页面最后滑动异常，表现为页面卡顿或者点击事件不生效。
+
+#### 问题分析
+Flutter在iOS上的手势处理，数据来源于FlutterViewController的touchesBegan/touchesMoved/touchesEnded/touchesCancelled这四个函数。一个触摸事件的正常与结束，取决于开始(touchesBegan)同结束(touchesEnded/touchesCancelled)的对称关系。然而，在此种场景下，这种对称关系被破坏了。
+
+#### 解决方案:
+在engine(engine/src/flutter)中添加容错逻辑。参见:
+patches/0001-Chinmay-6430-6145.patch
+
+#### 问题跟踪
+https://github.com/flutter/engine/pull/6145
