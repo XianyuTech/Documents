@@ -17,7 +17,14 @@
 
 ## 性能调优
 
+## 符号化
+
+Android：
+
+参见:script/android_engine_symbolicate.py(-h获取具体用法)
+
 ## 兼容性问题(中国市场)
+
 ### HUAWEI P6-T00 Android 4.2.2, API 17
 #### 问题
 Flutter页面黑并且Crash
