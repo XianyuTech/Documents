@@ -23,6 +23,21 @@ Android：
 
 参见:script/android_engine_symbolicate.py(-h获取具体用法)
 
+## 自定义flutter自带的snapshots
+目前在flutter/bin/cache/dart-sdk/bin/snapshots目录下，存在多个flutter自带的snapshots。
+如用于分析的analysis_server.dart.snapshot，dartanalyzer.dart.snapshot;
+用于文档的dartfmt.dart.snapshot;
+用于格式化的dartfmt.dart.snapshot;
+用于kernel-service的kernel-service.dart.snapshot;
+用于包获取的pub.dart.snapshot;
+
+那么当我们需要去修改的时候，如何处理呢？
+请使用:script/get_dartsdk_for_flutter.py
+例如，需要修改用于IDE代码分析的analysis_server.dart.snapshot，则可以通过
+get_dartsdk_for_flutter.py -fp your-flutter-root-path
+这个脚本将会根据你的flutter环境中的依赖关系，获取具体的dartsdk依赖，然后重新生成相应的snapshot，替换即可。
+当需要编辑相应源代码的时候，找到对应的package，fork出来修改，替换，使用脚本重新编译(修改会被保留，因而生效)重新编译构建snapshot，替换即可。
+
 ## 兼容性问题(中国市场)
 
 ### HUAWEI P6-T00 Android 4.2.2, API 17
