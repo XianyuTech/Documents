@@ -23,7 +23,7 @@ Android：
 
 参见:script/android_engine_symbolicate.py(-h获取具体用法)
 
-## 自定义flutter自带的snapshots
+## 自定义构建替换flutter自带的snapshots
 目前在flutter/bin/cache/dart-sdk/bin/snapshots目录下，存在多个flutter自带的snapshots。
 如用于分析的analysis_server.dart.snapshot，dartanalyzer.dart.snapshot;
 用于文档的dartfmt.dart.snapshot;
