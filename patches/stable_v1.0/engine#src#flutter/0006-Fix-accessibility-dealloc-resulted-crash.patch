@@ -1,0 +1,35 @@
+From 8c5a14d3ac667d26398d7dca8a6827e4e85a057f Mon Sep 17 00:00:00 2001
+From: KyleWong <kang.wang1988@gmail.com>
+Date: Wed, 24 Apr 2019 16:57:09 +0800
+Subject: [PATCH] top1 crash
+
+---
+ .../darwin/ios/framework/Source/accessibility_bridge.mm      | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/shell/platform/darwin/ios/framework/Source/accessibility_bridge.mm b/shell/platform/darwin/ios/framework/Source/accessibility_bridge.mm
+index d744e5fc0..e7ed90efd 100644
+--- a/shell/platform/darwin/ios/framework/Source/accessibility_bridge.mm
++++ b/shell/platform/darwin/ios/framework/Source/accessibility_bridge.mm
+@@ -110,7 +110,7 @@ - (instancetype)initWithBridge:(fml::WeakPtr<shell::AccessibilityBridge>)bridge
+   if (self) {
+     _bridge = bridge;
+     _uid = uid;
+-    self.children = [[[NSMutableArray alloc] init] autorelease];
++    _children = [[NSMutableArray alloc] init];
+   }
+ 
+   return self;
+@@ -121,7 +121,8 @@ - (void)dealloc {
+     child.parent = nil;
+   }
+   [_children removeAllObjects];
+-  [_children dealloc];
++  [_children release];
++  _children = nil;
+   _parent = nil;
+   [_container release];
+   _container = nil;
+-- 
+2.20.1 (Apple Git-117)
+

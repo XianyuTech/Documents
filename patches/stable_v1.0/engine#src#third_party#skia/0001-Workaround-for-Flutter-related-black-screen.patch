@@ -1,0 +1,34 @@
+From 52759e65691a585e32f62f4e4f624a5d224fcdad Mon Sep 17 00:00:00 2001
+From: KyleWong <kang.wang1988@gmail.com>
+Date: Sun, 23 Dec 2018 16:35:56 +0800
+Subject: [PATCH] alfpatch:Workaround for Flutter related black screen in some
+
+---
+ src/gpu/gl/GrGLInterface.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/gpu/gl/GrGLInterface.cpp b/src/gpu/gl/GrGLInterface.cpp
+index f63f483d40..d1643e5b77 100644
+--- a/src/gpu/gl/GrGLInterface.cpp
++++ b/src/gpu/gl/GrGLInterface.cpp
+@@ -370,7 +370,7 @@ bool GrGLInterface::validate() const {
+             fExtensions.has("GL_EXT_texture_buffer")) {
+             if (!fFunctions.fTexBuffer ||
+                 !fFunctions.fTexBufferRange) {
+-                RETURN_FALSE_INTERFACE;
++//                RETURN_FALSE_INTERFACE;
+             }
+         }
+     }
+@@ -397,7 +397,7 @@ bool GrGLInterface::validate() const {
+         if (!fFunctions.fInsertEventMarker ||
+             !fFunctions.fPushGroupMarker ||
+             !fFunctions.fPopGroupMarker) {
+-            RETURN_FALSE_INTERFACE
++//            RETURN_FALSE_INTERFACE
+         }
+     }
+ 
+-- 
+2.20.1 (Apple Git-117)
+

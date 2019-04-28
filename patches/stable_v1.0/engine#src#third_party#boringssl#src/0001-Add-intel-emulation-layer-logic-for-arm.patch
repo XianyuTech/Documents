@@ -1,52 +1,46 @@
-From a16d0a47d107717e42910dc49de2752a905db838 Mon Sep 17 00:00:00 2001
-From: KyleWong <kylewong.wk@alibaba-inc.com>
-Date: Sun, 29 Jul 2018 22:04:07 +0800
-Subject: [PATCH] =?UTF-8?q?arm=E5=88=A4=E6=96=AD=E7=9A=84=E9=80=BB?=
- =?UTF-8?q?=E8=BE=91=E4=B8=AD=E5=A2=9E=E5=8A=A0=E5=AF=B9=E4=BA=8Eintel=20e?=
- =?UTF-8?q?mulation=20layer=E7=9A=84=E5=AE=B9=E9=94=99=E9=80=BB=E8=BE=91?=
- =?UTF-8?q?=E3=80=82?=
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
+From 8c8bc7b2f96b2db415bfba08764b8007b46ee119 Mon Sep 17 00:00:00 2001
+From: KyleWong <kang.wang1988@gmail.com>
+Date: Sun, 23 Dec 2018 16:35:57 +0800
+Subject: [PATCH] alfpatch:Add intel emulation layer logic for arm
 
 ---
- crypto/cpu-arm-linux.c | 16 +++++++++++++++-
- 1 file changed, 15 insertions(+), 1 deletion(-)
+ crypto/cpu-arm-linux.c | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
 
 diff --git a/crypto/cpu-arm-linux.c b/crypto/cpu-arm-linux.c
-index 839b632b..5c7502bf 100644
+index 839b632b0..18a1d747d 100644
 --- a/crypto/cpu-arm-linux.c
 +++ b/crypto/cpu-arm-linux.c
-@@ -276,6 +276,11 @@ static unsigned long get_hwcap2_cpuinfo(const STRING_PIECE *cpuinfo) {
+@@ -276,6 +276,12 @@ static unsigned long get_hwcap2_cpuinfo(const STRING_PIECE *cpuinfo) {
    return ret;
  }
  
 +// is_intel returns true if /proc/cpuinfo reports that it is for an intel CPU.
 +static int is_intel(const STRING_PIECE *cpuinfo) {
-+    return cpuinfo_field_equals(cpuinfo, "Hardware", "placeholder");
++  return cpuinfo_field_equals(cpuinfo, "Hardware", "placeholder");
 +}
++
 +
  // has_broken_neon returns one if |in| matches a CPU known to have a broken
  // NEON unit. See https://crbug.com/341598.
  static int has_broken_neon(const STRING_PIECE *cpuinfo) {
-@@ -299,7 +304,16 @@ void OPENSSL_cpuid_setup(void) {
-   STRING_PIECE cpuinfo;
+@@ -300,6 +306,16 @@ void OPENSSL_cpuid_setup(void) {
    cpuinfo.data = cpuinfo_data;
    cpuinfo.len = cpuinfo_len;
--
-+    
+ 
 +  // If we are in a broken emulation environment, and the CPU reports that it is
 +  // not an ARM CPU, then we should not trust the values reported by
 +  // getauxval(), etc., and so bail out here.
 +  if (is_intel(&cpuinfo)) {
-+      g_has_broken_neon = 1;
-+      OPENSSL_free(cpuinfo_data);
-+      return;
++    g_has_broken_neon = 1;
++    OPENSSL_free(cpuinfo_data);
++    return;
 +  }
-+    
++
++
    // |getauxval| is not available on Android until API level 20. If it is
    // unavailable, read from /proc/self/auxv as a fallback. This is unreadable
    // on some versions of Android, so further fall back to /proc/cpuinfo.
 -- 
-2.17.1 (Apple Git-112)
+2.20.1 (Apple Git-117)
 
