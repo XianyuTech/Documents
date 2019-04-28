@@ -138,7 +138,7 @@ https://github.com/flutter/engine/pull/6145
 
 ### iOS上后台GPU渲染crash
 #### 崩溃日志
-```dart
+```
 Exception Type: SIGSEGV
 Exception Codes: SEGV_ACCERR at 0x1
 Triggered by Thread: 24
