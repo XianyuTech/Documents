@@ -1,0 +1,80 @@
+From af7dd219564adaceee62a68d4d6bd5bc4949d3c6 Mon Sep 17 00:00:00 2001
+From: KyleWong <kang.wang1988@gmail.com>
+Date: Sun, 23 Dec 2018 17:34:11 +0800
+Subject: [PATCH] Add flutter tools hook by JiangXiu.
+
+---
+ .gitignore                                      |  3 +++
+ packages/flutter_tools/bin/flutter_tools.dart   | 17 +++++++++++++++++
+ .../flutter_tools/lib/src/commands/clean.dart   |  7 +++++++
+ 3 files changed, 27 insertions(+)
+
+diff --git a/.gitignore b/.gitignore
+index 978225f3a..d48db7628 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -86,3 +86,6 @@ unlinked_spec.ds
+ !**/ios/**/default.pbxuser
+ !**/ios/**/default.perspectivev3
+ !/packages/flutter_tools/test/data/dart_dependencies_test/**/.packages
++
++/bin/cache/flutter_tools.snapshot
++/bin/cache/flutter_tools.stamp
+\ No newline at end of file
+diff --git a/packages/flutter_tools/bin/flutter_tools.dart b/packages/flutter_tools/bin/flutter_tools.dart
+index 762e6a5e9..50f020476 100644
+--- a/packages/flutter_tools/bin/flutter_tools.dart
++++ b/packages/flutter_tools/bin/flutter_tools.dart
+@@ -3,7 +3,24 @@
+ // found in the LICENSE file.
+ 
+ import 'package:flutter_tools/executable.dart' as executable;
++import 'package:flutter_tools/src/base/io.dart';
++import 'package:flutter_tools/src/base/process_manager.dart';
+ 
+ void main(List<String> args) {
++  print('[KWLM]:' + args.toString());
++
++  if (args != null && args.isNotEmpty) {
++    if ('run' == args.first || 'build' == args.first) {
++      final ProcessResult rlt = processManager
++          .runSync(<String>['build_exts/build_hooks.sh'], runInShell: true);
++      print('build_hooks:${rlt.stdout}\n${rlt.stderr}');
++    } else if ('delSelf' == args.first) {
++      final ProcessResult rlt = processManager.runSync(
++          <String>['build_exts/del_flutter_tool.sh'],
++          runInShell: true);
++      print('${rlt.stdout}\n${rlt.stderr}');
++      return;
++    }
++  }
+   executable.main(args);
+ }
+diff --git a/packages/flutter_tools/lib/src/commands/clean.dart b/packages/flutter_tools/lib/src/commands/clean.dart
+index 740f108c8..70721b993 100644
+--- a/packages/flutter_tools/lib/src/commands/clean.dart
++++ b/packages/flutter_tools/lib/src/commands/clean.dart
+@@ -6,6 +6,8 @@ import 'dart:async';
+ 
+ import '../base/common.dart';
+ import '../base/file_system.dart';
++import '../base/io.dart';
++import '../base/process_manager.dart';
+ import '../build_info.dart';
+ import '../globals.dart';
+ import '../runner/flutter_command.dart';
+@@ -26,6 +28,11 @@ class CleanCommand extends FlutterCommand {
+     final Directory buildDir = fs.directory(getBuildDirectory());
+     printStatus("Deleting '${buildDir.path}${fs.path.separator}'.");
+ 
++    final ProcessResult rlt = processManager.runSync(
++        <String>['build_exts/clean_hooks.sh'],
++        runInShell: true);
++    print('clean_hooks:${rlt.stdout}\n${rlt.stderr}');
++
+     if (!buildDir.existsSync())
+       return null;
+ 
+-- 
+2.17.2 (Apple Git-113)
+

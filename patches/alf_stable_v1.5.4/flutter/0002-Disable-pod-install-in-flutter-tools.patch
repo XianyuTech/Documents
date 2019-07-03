@@ -1,0 +1,24 @@
+From 74ddacc496cb592f5fd89f0ef7f9fc9f40a521e7 Mon Sep 17 00:00:00 2001
+From: KyleWong <kang.wang1988@gmail.com>
+Date: Fri, 21 Dec 2018 23:42:46 +0800
+Subject: [PATCH] Disable `pod install` in flutter tools.
+
+---
+ packages/flutter_tools/lib/src/ios/cocoapods.dart | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/packages/flutter_tools/lib/src/ios/cocoapods.dart b/packages/flutter_tools/lib/src/ios/cocoapods.dart
+index 26a903d28..8aeaf830a 100644
+--- a/packages/flutter_tools/lib/src/ios/cocoapods.dart
++++ b/packages/flutter_tools/lib/src/ios/cocoapods.dart
+@@ -206,6 +206,7 @@ class CocoaPods {
+   // 3. Pods/Manifest.lock doesn't exist (It is deleted when plugins change)
+   // 4. Podfile.lock doesn't match Pods/Manifest.lock.
+   bool _shouldRunPodInstall(IosProject iosProject, bool dependenciesChanged) {
++    return false;
+     if (dependenciesChanged)
+       return true;
+ 
+-- 
+2.17.2 (Apple Git-113)
+

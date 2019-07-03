@@ -1,0 +1,844 @@
+From 94b6af93d8fe5c69b66cdf7a8c213dba3d0855b0 Mon Sep 17 00:00:00 2001
+From: KyleWong <kang.wang1988@gmail.com>
+Date: Fri, 21 Dec 2018 23:51:36 +0800
+Subject: [PATCH] Add external surface texture support By lujunchen
+
+---
+ shell/platform/android/android_context_gl.cc  |   4 +
+ shell/platform/android/android_context_gl.h   |   2 +
+ .../android/android_external_texture_gl.cc    |  28 +++-
+ .../android/android_external_texture_gl.h     |   3 +
+ shell/platform/android/android_surface.h      |   2 +
+ shell/platform/android/android_surface_gl.cc  |   4 +
+ shell/platform/android/android_surface_gl.h   |   2 +
+ .../android/android_surface_software.cc       |   4 +
+ .../android/android_surface_software.h        |   2 +
+ .../android/io/flutter/view/FlutterView.java  | 129 +++++++++++++++++-
+ .../io/flutter/view/TextureRegistry.java      |  50 +++++++
+ .../platform/android/platform_view_android.cc |  10 ++
+ .../platform/android/platform_view_android.h  |   4 +
+ .../android/platform_view_android_jni.cc      |  40 ++++++
+ .../ios/framework/Headers/FlutterTexture.h    |   3 +
+ .../ios/framework/Source/FlutterEngine.mm     |   3 +
+ .../framework/Source/FlutterViewController.mm |   5 +
+ .../darwin/ios/ios_external_texture_gl.mm     |  67 +++++----
+ shell/platform/darwin/ios/ios_gl_context.h    |   2 +
+ shell/platform/darwin/ios/ios_gl_context.mm   |   9 +-
+ shell/platform/darwin/ios/ios_surface.h       |   2 +
+ shell/platform/darwin/ios/ios_surface_gl.h    |   2 +
+ shell/platform/darwin/ios/ios_surface_gl.mm   |   4 +
+ .../darwin/ios/ios_surface_software.h         |   2 +
+ .../darwin/ios/ios_surface_software.mm        |   4 +
+ shell/platform/darwin/ios/platform_view_ios.h |   2 +
+ .../platform/darwin/ios/platform_view_ios.mm  |   6 +
+ 27 files changed, 359 insertions(+), 36 deletions(-)
+
+diff --git a/shell/platform/android/android_context_gl.cc b/shell/platform/android/android_context_gl.cc
+index 8ac43b403..bb4e7b653 100644
+--- a/shell/platform/android/android_context_gl.cc
++++ b/shell/platform/android/android_context_gl.cc
+@@ -143,6 +143,10 @@ bool AndroidContextGL::CreatePBufferSurface() {
+   return surface_ != EGL_NO_SURFACE;
+ }
+ 
++void* AndroidContextGL::GetContext() {
++  return context_;
++}
++
+ AndroidContextGL::AndroidContextGL(fml::RefPtr<AndroidEnvironmentGL> env,
+                                    const AndroidContextGL* share_context)
+     : environment_(env),
+diff --git a/shell/platform/android/android_context_gl.h b/shell/platform/android/android_context_gl.h
+index e29dc7ac4..9a0be6d42 100644
+--- a/shell/platform/android/android_context_gl.h
++++ b/shell/platform/android/android_context_gl.h
+@@ -35,6 +35,8 @@ class AndroidContextGL : public fml::RefCountedThreadSafe<AndroidContextGL> {
+ 
+   bool Resize(const SkISize& size);
+ 
++  void* GetContext();
++
+  private:
+   fml::RefPtr<AndroidEnvironmentGL> environment_;
+   fml::RefPtr<AndroidNativeWindow> window_;
+diff --git a/shell/platform/android/android_external_texture_gl.cc b/shell/platform/android/android_external_texture_gl.cc
+index c587becd6..f8580fdbe 100644
+--- a/shell/platform/android/android_external_texture_gl.cc
++++ b/shell/platform/android/android_external_texture_gl.cc
+@@ -16,7 +16,18 @@ AndroidExternalTextureGL::AndroidExternalTextureGL(
+     const fml::jni::JavaObjectWeakGlobalRef& surfaceTexture)
+     : Texture(id), surface_texture_(surfaceTexture), transform(SkMatrix::I()) {}
+ 
+-AndroidExternalTextureGL::~AndroidExternalTextureGL() = default;
++AndroidExternalTextureGL::AndroidExternalTextureGL(int64_t id,
++                                                   int64_t texture_id)
++    : Texture(id), texture_name_(texture_id) {
++  use_out_texture_ = true;
++}
++
++AndroidExternalTextureGL::~AndroidExternalTextureGL() {
++  if (texture_name_ != 0 && !use_out_texture_) {
++    glDeleteTextures(1, &texture_name_);
++    texture_name_ = 0;
++  }
++};
+ 
+ void AndroidExternalTextureGL::OnGrContextCreated() {
+   state_ = AttachmentState::uninitialized;
+@@ -33,16 +44,25 @@ void AndroidExternalTextureGL::Paint(SkCanvas& canvas,
+     return;
+   }
+   if (state_ == AttachmentState::uninitialized) {
+-    glGenTextures(1, &texture_name_);
+-    Attach(static_cast<jint>(texture_name_));
++    if (!use_out_texture_) {
++      glGenTextures(1, &texture_name_);
++      Attach(static_cast<jint>(texture_name_));
++    }
+     state_ = AttachmentState::attached;
+   }
+   if (!freeze && new_frame_ready_) {
+-    Update();
++    if (!use_out_texture_) {
++      Update();
++    }
+     new_frame_ready_ = false;
+   }
+   GrGLTextureInfo textureInfo = {GL_TEXTURE_EXTERNAL_OES, texture_name_,
+                                  GL_RGBA8_OES};
++  if (use_out_texture_) {
++    textureInfo.fTarget = GL_TEXTURE_2D;
++    transform.setIdentity();
++  }
++
+   GrBackendTexture backendTexture(1, 1, GrMipMapped::kNo, textureInfo);
+   sk_sp<SkImage> image = SkImage::MakeFromTexture(
+       canvas.getGrContext(), backendTexture, kTopLeft_GrSurfaceOrigin,
+diff --git a/shell/platform/android/android_external_texture_gl.h b/shell/platform/android/android_external_texture_gl.h
+index 09a56766e..936efec81 100644
+--- a/shell/platform/android/android_external_texture_gl.h
++++ b/shell/platform/android/android_external_texture_gl.h
+@@ -16,6 +16,7 @@ class AndroidExternalTextureGL : public flow::Texture {
+   AndroidExternalTextureGL(
+       int64_t id,
+       const fml::jni::JavaObjectWeakGlobalRef& surfaceTexture);
++  AndroidExternalTextureGL(int64_t id, int64_t texture_id);
+ 
+   ~AndroidExternalTextureGL() override;
+ 
+@@ -44,6 +45,8 @@ class AndroidExternalTextureGL : public flow::Texture {
+ 
+   bool new_frame_ready_ = false;
+ 
++  bool use_out_texture_ = false;
++
+   GLuint texture_name_ = 0;
+ 
+   SkMatrix transform;
+diff --git a/shell/platform/android/android_surface.h b/shell/platform/android/android_surface.h
+index 0ecc9ffc7..0c2557698 100644
+--- a/shell/platform/android/android_surface.h
++++ b/shell/platform/android/android_surface.h
+@@ -36,6 +36,8 @@ class AndroidSurface {
+   virtual bool ResourceContextClearCurrent() = 0;
+ 
+   virtual bool SetNativeWindow(fml::RefPtr<AndroidNativeWindow> window) = 0;
++
++  virtual void* GetContext() = 0;
+ };
+ 
+ }  // namespace shell
+diff --git a/shell/platform/android/android_surface_gl.cc b/shell/platform/android/android_surface_gl.cc
+index 4e1ff9f41..a4d6fecc2 100644
+--- a/shell/platform/android/android_surface_gl.cc
++++ b/shell/platform/android/android_surface_gl.cc
+@@ -87,6 +87,10 @@ bool AndroidSurfaceGL::ResourceContextClearCurrent() {
+   return offscreen_context_->ClearCurrent();
+ }
+ 
++void* AndroidSurfaceGL::GetContext() {
++  return offscreen_context_->GetContext();
++}
++
+ bool AndroidSurfaceGL::SetNativeWindow(
+     fml::RefPtr<AndroidNativeWindow> window) {
+   // In any case, we want to get rid of our current onscreen context.
+diff --git a/shell/platform/android/android_surface_gl.h b/shell/platform/android/android_surface_gl.h
+index 11badede1..638a81b0c 100644
+--- a/shell/platform/android/android_surface_gl.h
++++ b/shell/platform/android/android_surface_gl.h
+@@ -58,6 +58,8 @@ class AndroidSurfaceGL final : public GPUSurfaceGLDelegate,
+   // |shell::GPUSurfaceGLDelegate|
+   intptr_t GLContextFBO() const override;
+ 
++  void* GetContext() override;
++
+  private:
+   fml::RefPtr<AndroidContextGL> onscreen_context_;
+   fml::RefPtr<AndroidContextGL> offscreen_context_;
+diff --git a/shell/platform/android/android_surface_software.cc b/shell/platform/android/android_surface_software.cc
+index 475c1de26..c492caf78 100644
+--- a/shell/platform/android/android_surface_software.cc
++++ b/shell/platform/android/android_surface_software.cc
+@@ -139,6 +139,10 @@ bool AndroidSurfaceSoftware::OnScreenSurfaceResize(const SkISize& size) const {
+   return true;
+ }
+ 
++void* AndroidSurfaceSoftware::GetContext() {
++  return 0;
++}
++
+ bool AndroidSurfaceSoftware::SetNativeWindow(
+     fml::RefPtr<AndroidNativeWindow> window) {
+   native_window_ = std::move(window);
+diff --git a/shell/platform/android/android_surface_software.h b/shell/platform/android/android_surface_software.h
+index c7410642c..110e2db7c 100644
+--- a/shell/platform/android/android_surface_software.h
++++ b/shell/platform/android/android_surface_software.h
+@@ -47,6 +47,8 @@ class AndroidSurfaceSoftware final : public AndroidSurface,
+   // |shell::GPUSurfaceSoftwareDelegate|
+   bool PresentBackingStore(sk_sp<SkSurface> backing_store) override;
+ 
++  void* GetContext() override;
++
+  private:
+   sk_sp<SkSurface> sk_surface_;
+   fml::RefPtr<AndroidNativeWindow> native_window_;
+diff --git a/shell/platform/android/io/flutter/view/FlutterView.java b/shell/platform/android/io/flutter/view/FlutterView.java
+index 759b2744c..a85670700 100644
+--- a/shell/platform/android/io/flutter/view/FlutterView.java
++++ b/shell/platform/android/io/flutter/view/FlutterView.java
+@@ -25,6 +25,8 @@ import android.view.accessibility.AccessibilityNodeProvider;
+ import android.view.inputmethod.EditorInfo;
+ import android.view.inputmethod.InputConnection;
+ import android.view.inputmethod.InputMethodManager;
++import android.opengl.EGLContext;
++import io.flutter.app.FlutterActivity;
+ import io.flutter.app.FlutterPluginRegistry;
+ import io.flutter.plugin.common.*;
+ import io.flutter.plugin.editing.TextInputPlugin;
+@@ -790,10 +792,15 @@ public class FlutterView extends SurfaceView
+ 
+     private static native void nativeRegisterTexture(long nativePlatformViewAndroid, long textureId,
+             SurfaceTexture surfaceTexture);
++            
++    private static native void nativeGLRegisterTexture(long nativePlatformViewAndroid, long textureIndex, long textureId);
+ 
+     private static native void nativeMarkTextureFrameAvailable(long nativePlatformViewAndroid, long textureId);
++            
+ 
+     private static native void nativeUnregisterTexture(long nativePlatformViewAndroid, long textureId);
++            
++    private static native EGLContext nativeGetContext(long nativePlatformViewAndroid);
+ 
+     private void updateViewportMetrics() {
+         if (!isAttached())
+@@ -1076,11 +1083,85 @@ public class FlutterView extends SurfaceView
+         nativeRegisterTexture(mNativeView.get(), entry.id(), surfaceTexture);
+         return entry;
+     }
++            
++    @Override
++    public void onGLFrameAvaliable(int textureIndex) {
++        nativeMarkTextureFrameAvailable(mNativeView.get(), textureIndex);
++    }
++    
++    @Override
++    public long registerGLTexture(long textureID) {
++        long texIndex = nextTextureId.getAndIncrement();
++        nativeGLRegisterTexture(mNativeView.get(), texIndex, textureID);
++        return texIndex;
++    }
++            
++    @Override
++    public TextureRegistry.GLTextureEntry createGLTexture(long textureID) {
++        long texIndex = nextTextureId.getAndIncrement();
++        final GLTextureRegistryEntry entry = new GLTextureRegistryEntry(texIndex,textureID);
++        nativeGLRegisterTexture(mNativeView.get(), texIndex, textureID);
++        return entry;
++    }
+ 
++    @Override
++    public EGLContext getGLContext() {
++        return nativeGetContext(mNativeView.get());
++    }
++            
++    final class GLTextureRegistryEntry implements TextureRegistry.GLTextureEntry {
++        private final long id;
++        private final long textureID;
++        private boolean released;
++        private boolean suspended;
++        GLTextureRegistryEntry(long id, long textureID) {
++            this.id = id;
++            this.textureID = textureID;
++        }
++
++        @Override
++        public long id() {
++            return id;
++        }
++        
++        @Override
++        public void release() {
++            if (released) {
++                return;
++            }
++            if (suspended) {
++                return;
++            }
++            released = true;
++            nativeGLRegisterTexture(mNativeView.get(), id, textureID);
++        }
++                
++        @Override
++        public void suspend() {
++            if (released) {
++                return;
++            }
++            if (suspended) {
++                return;
++            }
++            suspended = true;
++            nativeUnregisterTexture(mNativeView.get(), id);
++        }
++                
++        @Override
++        public void resume(long textureID) {
++            if(released) return;
++            if(!suspended) return;
++            suspended = false;
++            nativeGLRegisterTexture(mNativeView.get(), id, textureID);
++        }
++    }
++            
+     final class SurfaceTextureRegistryEntry implements TextureRegistry.SurfaceTextureEntry {
+         private final long id;
+-        private final SurfaceTexture surfaceTexture;
++        private SurfaceTexture surfaceTexture;
+         private boolean released;
++        private boolean suspended;
+ 
+         SurfaceTextureRegistryEntry(long id, SurfaceTexture surfaceTexture) {
+             this.id = id;
+@@ -1127,12 +1208,58 @@ public class FlutterView extends SurfaceView
+             if (released) {
+                 return;
+             }
++            if (suspended) {
++                return;
++            }
+             released = true;
+             nativeUnregisterTexture(mNativeView.get(), id);
+             // Otherwise onFrameAvailableListener might be called after mNativeView==null
+             // (https://github.com/flutter/flutter/issues/20951). See also the check in onFrameAvailable.
+             surfaceTexture.setOnFrameAvailableListener(null);
+             surfaceTexture.release();
++            surfaceTexture = null;
++        }
++
++        @Override
++        public void suspend() {
++            if (released) {
++                return;
++            }
++            if (suspended) {
++                return;
++            }
++
++            suspended = true;
++            nativeUnregisterTexture(mNativeView.get(), id);
++            // Otherwise onFrameAvailableListener might be called after mNativeView==null
++            // (https://github.com/flutter/flutter/issues/20951). See also the check in
++            // onFrameAvailable.
++            surfaceTexture.setOnFrameAvailableListener(null);
++            surfaceTexture.release();
++            surfaceTexture = null;
++        }
++
++        @Override
++        public void resume() {
++            if(released) return;
++            if(!suspended) return;
++            suspended = false;
++            if(surfaceTexture == null){
++                surfaceTexture = new SurfaceTexture(0);
++                surfaceTexture.detachFromGLContext();
++                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
++                    // The callback relies on being executed on the UI thread (unsynchronised read of mNativeView
++                    // and also the engine code check for platform thread in Shell::OnPlatformViewMarkTextureFrameAvailable),
++                    // so we explicitly pass a Handler for the current thread.
++                    surfaceTexture.setOnFrameAvailableListener(onFrameListener, new Handler());
++                } else {
++                    // Android documentation states that the listener can be called on an arbitrary thread.
++                    // But in practice, versions of Android that predate the newer API will call the listener
++                    // on the thread where the SurfaceTexture was constructed.
++                    surfaceTexture.setOnFrameAvailableListener(onFrameListener);
++                }
++            }
++            nativeRegisterTexture(mNativeView.get(), id, surfaceTexture);
+         }
+     }
+ }
+diff --git a/shell/platform/android/io/flutter/view/TextureRegistry.java b/shell/platform/android/io/flutter/view/TextureRegistry.java
+index ed3134bb0..1b1045f01 100644
+--- a/shell/platform/android/io/flutter/view/TextureRegistry.java
++++ b/shell/platform/android/io/flutter/view/TextureRegistry.java
+@@ -5,6 +5,7 @@
+ package io.flutter.view;
+ 
+ import android.graphics.SurfaceTexture;
++import android.opengl.EGLContext;
+ 
+ /**
+  * Registry of backend textures used with a single {@link FlutterView} instance.
+@@ -19,6 +20,42 @@ public interface TextureRegistry {
+     * @return A SurfaceTextureEntry.
+     */
+     SurfaceTextureEntry createSurfaceTexture();
++    
++    void onGLFrameAvaliable(int index);
++    
++    long registerGLTexture(long textureID);
++    
++    EGLContext getGLContext();
++    
++    GLTextureEntry createGLTexture(long textureID);
++    
++    /**
++     * A registry entry for a managed SurfaceTexture.
++     */
++    interface GLTextureEntry {
++        
++        /**
++         * @return The identity of this SurfaceTexture.
++         */
++        long id();
++        
++        /**
++         * Deregisters and releases this SurfaceTexture.
++         */
++        void release();
++        
++        /**
++         * suspend the SurfaceTexture
++         * this will unregister the texture and release the existed surfaceeTexture,but
++         * the id will be reserved
++         */
++        void suspend();
++        
++        /**
++         * this will create a new SurfaceTexture, and register texture
++         */
++        void resume(long textureID);
++    }
+ 
+     /**
+      * A registry entry for a managed SurfaceTexture.
+@@ -38,5 +75,18 @@ public interface TextureRegistry {
+          * Deregisters and releases this SurfaceTexture.
+          */
+         void release();
++        
++        /**
++         * suspend the SurfaceTexture
++         * this will unregister the texture and release the existed surfaceeTexture,but
++         * the id will be reserved
++         */
++        void suspend();
++        
++        /**
++         * this will create a new SurfaceTexture, and register texture
++         */
++        void resume();
++
+     }
+ }
+diff --git a/shell/platform/android/platform_view_android.cc b/shell/platform/android/platform_view_android.cc
+index 034c05969..d70cd5be3 100644
+--- a/shell/platform/android/platform_view_android.cc
++++ b/shell/platform/android/platform_view_android.cc
+@@ -355,6 +355,16 @@ void PlatformViewAndroid::RegisterExternalTexture(
+       std::make_shared<AndroidExternalTextureGL>(texture_id, surface_texture));
+ }
+ 
++void PlatformViewAndroid::RegisterGLExternalTexture(int64_t texture_index,
++                                                    int64_t texture_id) {
++  RegisterTexture(
++      std::make_shared<AndroidExternalTextureGL>(texture_index, texture_id));
++}
++
++void* PlatformViewAndroid::GetContext() {
++  return android_surface_->GetContext();
++}
++
+ // |shell::PlatformView|
+ std::unique_ptr<VsyncWaiter> PlatformViewAndroid::CreateVSyncWaiter() {
+   return std::make_unique<VsyncWaiterAndroid>(task_runners_);
+diff --git a/shell/platform/android/platform_view_android.h b/shell/platform/android/platform_view_android.h
+index c162ac5a2..b325d166f 100644
+--- a/shell/platform/android/platform_view_android.h
++++ b/shell/platform/android/platform_view_android.h
+@@ -73,6 +73,10 @@ class PlatformViewAndroid final : public PlatformView {
+       int64_t texture_id,
+       const fml::jni::JavaObjectWeakGlobalRef& surface_texture);
+ 
++  void RegisterGLExternalTexture(int64_t texture_index, int64_t texture_id);
++
++  void* GetContext();
++
+  private:
+   const fml::jni::JavaObjectWeakGlobalRef java_object_;
+   const std::unique_ptr<AndroidSurface> android_surface_;
+diff --git a/shell/platform/android/platform_view_android_jni.cc b/shell/platform/android/platform_view_android_jni.cc
+index be42414b6..50d93f1b1 100644
+--- a/shell/platform/android/platform_view_android_jni.cc
++++ b/shell/platform/android/platform_view_android_jni.cc
+@@ -24,6 +24,9 @@
+ #include "flutter/shell/platform/android/apk_asset_provider.h"
+ #include "flutter/shell/platform/android/flutter_main.h"
+ 
++#include <EGL/egl.h>
++#include <EGL/eglext.h>
++
+ #define ANDROID_SHELL_HOLDER \
+   (reinterpret_cast<shell::AndroidShellHolder*>(shell_holder))
+ 
+@@ -502,6 +505,31 @@ static void RegisterTexture(JNIEnv* env,
+   );
+ }
+ 
++static void RegisterGLTexture(JNIEnv* env,
++                              jobject jcaller,
++                              jlong shell_holder,
++                              jlong texture_index,
++                              jlong texture_id) {
++  ANDROID_SHELL_HOLDER->GetPlatformView()->RegisterGLExternalTexture(
++      static_cast<int64_t>(texture_index), static_cast<int64_t>(texture_id));
++}
++
++static jobject GetContext(JNIEnv* env, jobject jcaller, jlong shell_holder) {
++  jclass eglcontextClassLocal = env->FindClass("android/opengl/EGLContext");
++  jmethodID eglcontextConstructor =
++      env->GetMethodID(eglcontextClassLocal, "<init>", "(J)V");
++
++  void* cxt = ANDROID_SHELL_HOLDER->GetPlatformView()->GetContext();
++
++  if ((EGLContext)cxt == EGL_NO_CONTEXT) {
++    return env->NewObject(eglcontextClassLocal, eglcontextConstructor,
++                          reinterpret_cast<jlong>(EGL_NO_CONTEXT));
++  }
++
++  return env->NewObject(eglcontextClassLocal, eglcontextConstructor,
++                        reinterpret_cast<jlong>(cxt));
++}
++
+ static void MarkTextureFrameAvailable(JNIEnv* env,
+                                       jobject jcaller,
+                                       jlong shell_holder,
+@@ -688,6 +716,12 @@ bool PlatformViewAndroid::Register(JNIEnv* env) {
+           .signature = "(JJLandroid/graphics/SurfaceTexture;)V",
+           .fnPtr = reinterpret_cast<void*>(&shell::RegisterTexture),
+       },
++      {
++          .name = "nativeGLRegisterTexture",
++          .signature = "(JJJ)V",
++          .fnPtr = reinterpret_cast<void*>(&shell::RegisterGLTexture),
++      },
++
+       {
+           .name = "nativeMarkTextureFrameAvailable",
+           .signature = "(JJ)V",
+@@ -698,6 +732,12 @@ bool PlatformViewAndroid::Register(JNIEnv* env) {
+           .signature = "(JJ)V",
+           .fnPtr = reinterpret_cast<void*>(&shell::UnregisterTexture),
+       },
++      {
++          .name = "nativeGetContext",
++          .signature = "(J)Landroid/opengl/EGLContext;",
++          .fnPtr = reinterpret_cast<void*>(&shell::GetContext),
++      },
++
+   };
+ 
+   static const JNINativeMethod callback_info_methods[] = {
+diff --git a/shell/platform/darwin/ios/framework/Headers/FlutterTexture.h b/shell/platform/darwin/ios/framework/Headers/FlutterTexture.h
+index e7cd01337..4abccee96 100644
+--- a/shell/platform/darwin/ios/framework/Headers/FlutterTexture.h
++++ b/shell/platform/darwin/ios/framework/Headers/FlutterTexture.h
+@@ -7,6 +7,7 @@
+ 
+ #import <CoreMedia/CoreMedia.h>
+ #import <Foundation/Foundation.h>
++#import <OpenGLES/EAGL.h>
+ 
+ #include "FlutterMacros.h"
+ 
+@@ -15,6 +16,7 @@ NS_ASSUME_NONNULL_BEGIN
+ FLUTTER_EXPORT
+ @protocol FlutterTexture <NSObject>
+ - (CVPixelBufferRef _Nullable)copyPixelBuffer;
++- (GLuint)copyTextureID;
+ @end
+ 
+ FLUTTER_EXPORT
+@@ -22,6 +24,7 @@ FLUTTER_EXPORT
+ - (int64_t)registerTexture:(NSObject<FlutterTexture>*)texture;
+ - (void)textureFrameAvailable:(int64_t)textureId;
+ - (void)unregisterTexture:(int64_t)textureId;
++- (EAGLSharegroup*)glShareGroup;
+ @end
+ 
+ NS_ASSUME_NONNULL_END
+diff --git a/shell/platform/darwin/ios/framework/Source/FlutterEngine.mm b/shell/platform/darwin/ios/framework/Source/FlutterEngine.mm
+index c5f3b8d9a..c6c4f1af6 100644
+--- a/shell/platform/darwin/ios/framework/Source/FlutterEngine.mm
++++ b/shell/platform/darwin/ios/framework/Source/FlutterEngine.mm
+@@ -459,6 +459,9 @@ - (void)setMessageHandlerOnChannel:(NSString*)channel
+ }
+ 
+ #pragma mark - FlutterTextureRegistry
++- (EAGLSharegroup*)glShareGroup {
++    return (EAGLSharegroup*)(self.iosPlatformView -> GetGLShareGroup());
++}
+ 
+ - (int64_t)registerTexture:(NSObject<FlutterTexture>*)texture {
+   int64_t textureId = _nextTextureId++;
+diff --git a/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+index 5a367bdea..9f01c4002 100644
+--- a/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
++++ b/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+@@ -953,6 +953,11 @@ - (void)setMessageHandlerOnChannel:(NSString*)channel
+ }
+ 
+ #pragma mark - FlutterTextureRegistry
++- (EAGLSharegroup*)glShareGroup {
++  shell::PlatformViewIOS* platformViewIOS =
++      static_cast<shell::PlatformViewIOS*>([_engine.get() platformView].get());
++  return (EAGLSharegroup*)(platformViewIOS->GetGLShareGroup());
++}
+ 
+ - (int64_t)registerTexture:(NSObject<FlutterTexture>*)texture {
+   return [_engine.get() registerTexture:texture];
+diff --git a/shell/platform/darwin/ios/ios_external_texture_gl.mm b/shell/platform/darwin/ios/ios_external_texture_gl.mm
+index e77970697..b1480efae 100644
+--- a/shell/platform/darwin/ios/ios_external_texture_gl.mm
++++ b/shell/platform/darwin/ios/ios_external_texture_gl.mm
+@@ -25,39 +25,48 @@
+ IOSExternalTextureGL::~IOSExternalTextureGL() = default;
+ 
+ void IOSExternalTextureGL::Paint(SkCanvas& canvas, const SkRect& bounds, bool freeze) {
+-  if (!cache_ref_) {
+-    CVOpenGLESTextureCacheRef cache;
+-    CVReturn err = CVOpenGLESTextureCacheCreate(kCFAllocatorDefault, NULL,
+-                                                [EAGLContext currentContext], NULL, &cache);
+-    if (err == noErr) {
+-      cache_ref_.Reset(cache);
+-    } else {
+-      FML_LOG(WARNING) << "Failed to create GLES texture cache: " << err;
+-      return;
+-    }
+-  }
+-  fml::CFRef<CVPixelBufferRef> bufferRef;
+-  if (!freeze) {
+-    bufferRef.Reset([external_texture_ copyPixelBuffer]);
+-    if (bufferRef != nullptr) {
+-      CVOpenGLESTextureRef texture;
+-      CVReturn err = CVOpenGLESTextureCacheCreateTextureFromImage(
+-          kCFAllocatorDefault, cache_ref_, bufferRef, nullptr, GL_TEXTURE_2D, GL_RGBA,
+-          static_cast<int>(CVPixelBufferGetWidth(bufferRef)),
+-          static_cast<int>(CVPixelBufferGetHeight(bufferRef)), GL_BGRA, GL_UNSIGNED_BYTE, 0,
+-          &texture);
+-      texture_ref_.Reset(texture);
+-      if (err != noErr) {
+-        FML_LOG(WARNING) << "Could not create texture from pixel buffer: " << err;
++  GrGLTextureInfo textureInfo;
++  if ([external_texture_ respondsToSelector:@selector(copyTextureID)]) {
++    textureInfo.fFormat = GL_RGBA8_OES;
++    textureInfo.fID = [external_texture_ copyTextureID];
++    textureInfo.fTarget = GL_TEXTURE_2D;
++  } else {
++    if (!cache_ref_) {
++      CVOpenGLESTextureCacheRef cache;
++      CVReturn err = CVOpenGLESTextureCacheCreate(kCFAllocatorDefault, NULL,
++                                                  [EAGLContext currentContext], NULL, &cache);
++      if (err == noErr) {
++        cache_ref_.Reset(cache);
++      } else {
++        FML_LOG(WARNING) << "Failed to create GLES texture cache: " << err;
+         return;
+       }
+     }
++    if (!freeze) {
++      fml::CFRef<CVPixelBufferRef> bufferRef;
++      bufferRef.Reset([external_texture_ copyPixelBuffer]);
++      if (bufferRef != nullptr) {
++        CVOpenGLESTextureRef texture;
++        CVReturn err = CVOpenGLESTextureCacheCreateTextureFromImage(
++            kCFAllocatorDefault, cache_ref_, bufferRef, nullptr, GL_TEXTURE_2D, GL_RGBA,
++            static_cast<int>(CVPixelBufferGetWidth(bufferRef)),
++            static_cast<int>(CVPixelBufferGetHeight(bufferRef)), GL_BGRA, GL_UNSIGNED_BYTE, 0,
++            &texture);
++        texture_ref_.Reset(texture);
++        if (err != noErr) {
++          FML_LOG(WARNING) << "Could not create texture from pixel buffer: " << err;
++          return;
++        }
++      }
++    }
++
++    if (!texture_ref_) {
++      return;
++    }
++    textureInfo.fFormat = GL_RGBA8_OES;
++    textureInfo.fID = CVOpenGLESTextureGetName(texture_ref_);
++    textureInfo.fTarget = CVOpenGLESTextureGetTarget(texture_ref_);
+   }
+-  if (!texture_ref_) {
+-    return;
+-  }
+-  GrGLTextureInfo textureInfo = {CVOpenGLESTextureGetTarget(texture_ref_),
+-                                 CVOpenGLESTextureGetName(texture_ref_), GL_RGBA8_OES};
+   GrBackendTexture backendTexture(bounds.width(), bounds.height(), GrMipMapped::kNo, textureInfo);
+   sk_sp<SkImage> image =
+       SkImage::MakeFromTexture(canvas.getGrContext(), backendTexture, kTopLeft_GrSurfaceOrigin,
+diff --git a/shell/platform/darwin/ios/ios_gl_context.h b/shell/platform/darwin/ios/ios_gl_context.h
+index 08778d213..6758c93cd 100644
+--- a/shell/platform/darwin/ios/ios_gl_context.h
++++ b/shell/platform/darwin/ios/ios_gl_context.h
+@@ -30,6 +30,8 @@ class IOSGLContext {
+ 
+   bool ResourceMakeCurrent();
+ 
++  void* GetGLShareGroup();
++
+   sk_sp<SkColorSpace> ColorSpace() const { return color_space_; }
+ 
+  private:
+diff --git a/shell/platform/darwin/ios/ios_gl_context.mm b/shell/platform/darwin/ios/ios_gl_context.mm
+index c8819a78b..276d330f9 100644
+--- a/shell/platform/darwin/ios/ios_gl_context.mm
++++ b/shell/platform/darwin/ios/ios_gl_context.mm
+@@ -13,9 +13,9 @@
+ namespace shell {
+ 
+ IOSGLContext::IOSGLContext() {
+-  context_.reset([[EAGLContext alloc] initWithAPI:kEAGLRenderingAPIOpenGLES3]);
++  context_.reset([[EAGLContext alloc] initWithAPI:kEAGLRenderingAPIOpenGLES2]);
+   if (context_ != nullptr) {
+-    resource_context_.reset([[EAGLContext alloc] initWithAPI:kEAGLRenderingAPIOpenGLES3
++    resource_context_.reset([[EAGLContext alloc] initWithAPI:kEAGLRenderingAPIOpenGLES2
+                                                   sharegroup:context_.get().sharegroup]);
+   } else {
+     context_.reset([[EAGLContext alloc] initWithAPI:kEAGLRenderingAPIOpenGLES2]);
+@@ -61,4 +61,9 @@
+   return [EAGLContext setCurrentContext:resource_context_.get()];
+ }
+ 
++void* IOSGLContext::GetGLShareGroup() {
++  EAGLSharegroup* shareGroup = context_.get().sharegroup;
++  return (void*)shareGroup;
++}
++
+ }  // namespace shell
+diff --git a/shell/platform/darwin/ios/ios_surface.h b/shell/platform/darwin/ios/ios_surface.h
+index 1fc6a4218..e8bb37c84 100644
+--- a/shell/platform/darwin/ios/ios_surface.h
++++ b/shell/platform/darwin/ios/ios_surface.h
+@@ -33,6 +33,8 @@ class IOSSurface {
+ 
+   virtual std::unique_ptr<Surface> CreateGPUSurface() = 0;
+ 
++  virtual void* GetGLShareGroup() = 0;
++
+  protected:
+   FlutterPlatformViewsController* GetPlatformViewsController();
+ 
+diff --git a/shell/platform/darwin/ios/ios_surface_gl.h b/shell/platform/darwin/ios/ios_surface_gl.h
+index 93fcc0f51..8d6515db5 100644
+--- a/shell/platform/darwin/ios/ios_surface_gl.h
++++ b/shell/platform/darwin/ios/ios_surface_gl.h
+@@ -39,6 +39,8 @@ class IOSSurfaceGL : public IOSSurface,
+ 
+   bool GLContextMakeCurrent() override;
+ 
++  void* GetGLShareGroup() override;
++
+   bool GLContextClearCurrent() override;
+ 
+   bool GLContextPresent() override;
+diff --git a/shell/platform/darwin/ios/ios_surface_gl.mm b/shell/platform/darwin/ios/ios_surface_gl.mm
+index cd0bb093d..914bf2a33 100644
+--- a/shell/platform/darwin/ios/ios_surface_gl.mm
++++ b/shell/platform/darwin/ios/ios_surface_gl.mm
+@@ -50,6 +50,10 @@
+   return IsValid() ? render_target_->framebuffer() : GL_NONE;
+ }
+ 
++void* IOSSurfaceGL::GetGLShareGroup() {
++  return context_.get()->GetGLShareGroup();
++}
++
+ bool IOSSurfaceGL::UseOffscreenSurface() const {
+   // The onscreen surface wraps a GL renderbuffer, which is extremely slow to read.
+   // Certain filter effects require making a copy of the current destination, so we
+diff --git a/shell/platform/darwin/ios/ios_surface_software.h b/shell/platform/darwin/ios/ios_surface_software.h
+index 79695b3a2..ecc640dbb 100644
+--- a/shell/platform/darwin/ios/ios_surface_software.h
++++ b/shell/platform/darwin/ios/ios_surface_software.h
+@@ -36,6 +36,8 @@ class IOSSurfaceSoftware final : public IOSSurface,
+   // |shell::IOSSurface|
+   std::unique_ptr<Surface> CreateGPUSurface() override;
+ 
++  void* GetGLShareGroup() override;
++
+   // |shell::GPUSurfaceSoftwareDelegate|
+   sk_sp<SkSurface> AcquireBackingStore(const SkISize& size) override;
+ 
+diff --git a/shell/platform/darwin/ios/ios_surface_software.mm b/shell/platform/darwin/ios/ios_surface_software.mm
+index 5d120ef47..0c467853b 100644
+--- a/shell/platform/darwin/ios/ios_surface_software.mm
++++ b/shell/platform/darwin/ios/ios_surface_software.mm
+@@ -52,6 +52,10 @@
+   return surface;
+ }
+ 
++void* IOSSurfaceSoftware::GetGLShareGroup() {
++  return nullptr;
++}
++
+ sk_sp<SkSurface> IOSSurfaceSoftware::AcquireBackingStore(const SkISize& size) {
+   TRACE_EVENT0("flutter", "IOSSurfaceSoftware::AcquireBackingStore");
+   if (!IsValid()) {
+diff --git a/shell/platform/darwin/ios/platform_view_ios.h b/shell/platform/darwin/ios/platform_view_ios.h
+index a0d85a7ff..294885c15 100644
+--- a/shell/platform/darwin/ios/platform_view_ios.h
++++ b/shell/platform/darwin/ios/platform_view_ios.h
+@@ -36,6 +36,8 @@ class PlatformViewIOS final : public PlatformView {
+ 
+   void RegisterExternalTexture(int64_t id, NSObject<FlutterTexture>* texture);
+ 
++  void* GetGLShareGroup();
++
+   fml::scoped_nsprotocol<FlutterTextInputPlugin*> GetTextInputPlugin() const;
+ 
+   void SetTextInputPlugin(fml::scoped_nsprotocol<FlutterTextInputPlugin*> plugin);
+diff --git a/shell/platform/darwin/ios/platform_view_ios.mm b/shell/platform/darwin/ios/platform_view_ios.mm
+index f3371a983..3231c1736 100644
+--- a/shell/platform/darwin/ios/platform_view_ios.mm
++++ b/shell/platform/darwin/ios/platform_view_ios.mm
+@@ -63,6 +63,12 @@
+   RegisterTexture(std::make_shared<IOSExternalTextureGL>(texture_id, texture));
+ }
+ 
++void* PlatformViewIOS::GetGLShareGroup() {
++  if (ios_surface_.get() == NULL)
++    return NULL;
++  return ios_surface_->GetGLShareGroup();
++}
++
+ // |shell::PlatformView|
+ std::unique_ptr<Surface> PlatformViewIOS::CreateRenderingSurface() {
+   if (!ios_surface_) {
+-- 
+2.17.2 (Apple Git-113)
+

@@ -1,0 +1,33 @@
+From 18a6a3a5c87120f7e2eecd473fa829738ab4d02a Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=E4=B8=89=E8=8E=85?= <sanli.ttt@alibaba-inc.com>
+Date: Thu, 27 Jun 2019 10:21:32 +0800
+Subject: [PATCH] fix #21270273: fix
+ crash:https://github.com/flutter/flutter/issues/31650
+
+---
+ flow/layers/transform_layer.cc | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/flow/layers/transform_layer.cc b/flow/layers/transform_layer.cc
+index 9a9a7d486..543fd754a 100644
+--- a/flow/layers/transform_layer.cc
++++ b/flow/layers/transform_layer.cc
+@@ -25,7 +25,14 @@ void TransformLayer::Preroll(PrerollContext* context, const SkMatrix& matrix) {
+   //
+   // We have to write this flaky test because there is no reliable way to test
+   // whether a variable is initialized or not in C++.
+-  FML_CHECK(transform_.isFinite());
++
++  //fix crash:https://github.com/flutter/flutter/issues/31650
++  // FML_CHECK(transform_.isFinite());
++  FML_DCHECK(transform_.isFinite());
++  if (!transform_.isFinite()) {
++    FML_LOG(ERROR) << "TransformLayer is constructed with an invalid matrix.";
++    transform_.setIdentity();
++  }
+ 
+   SkMatrix child_matrix;
+   child_matrix.setConcat(matrix, transform_);
+-- 
+2.18.0
+

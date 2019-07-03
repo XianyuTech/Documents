@@ -1,0 +1,36 @@
+From f5c7a26e5ab6595f49e5fec3d4cdd5f7cb1a6512 Mon Sep 17 00:00:00 2001
+From: lujunchen <lujun.clj@alibaba-inc.com>
+Date: Tue, 19 Mar 2019 22:23:38 +0800
+Subject: [PATCH] =?UTF-8?q?=E6=A8=A1=E6=8B=9F=E5=99=A8=E5=9B=BE=E7=89=87?=
+ =?UTF-8?q?=E9=97=AE=E9=A2=98=E4=BF=AE=E5=A4=8D=E3=80=82?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ shell/platform/darwin/ios/framework/Source/FlutterView.mm | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/shell/platform/darwin/ios/framework/Source/FlutterView.mm b/shell/platform/darwin/ios/framework/Source/FlutterView.mm
+index 32c54f632..a21809de7 100644
+--- a/shell/platform/darwin/ios/framework/Source/FlutterView.mm
++++ b/shell/platform/darwin/ios/framework/Source/FlutterView.mm
+@@ -55,11 +55,11 @@
+ }
+ 
+ + (Class)layerClass {
+-#if TARGET_IPHONE_SIMULATOR
+-  return [CALayer class];
+-#else   // TARGET_IPHONE_SIMULATOR
++//#if TARGET_IPHONE_SIMULATOR
++//  return [CALayer class];
++//#else   // TARGET_IPHONE_SIMULATOR
+   return [CAEAGLLayer class];
+-#endif  // TARGET_IPHONE_SIMULATOR
++//#endif  // TARGET_IPHONE_SIMULATOR
+ }
+ 
+ - (std::unique_ptr<shell::IOSSurface>)createSurface {
+-- 
+2.18.0
+

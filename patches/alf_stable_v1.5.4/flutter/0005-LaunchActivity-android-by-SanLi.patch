@@ -1,0 +1,34 @@
+From 4d252c84bb4fa2f0dee4d4c0cb892f8d5bdfa771 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=E4=B8=89=E8=8E=85?= <sanli.ttt@alibaba-inc.com>
+Date: Tue, 2 Apr 2019 14:45:53 +0800
+Subject: [PATCH] =?UTF-8?q?fix=20#19808027=20=E9=98=B2=E6=AD=A2launchActiv?=
+ =?UTF-8?q?ity=E8=AE=BE=E7=BD=AE=E6=88=90DebugActivity=E5=AF=BC=E8=87=B4de?=
+ =?UTF-8?q?bug=E6=A8=A1=E5=BC=8F=E4=B8=8B=E6=97=A0=E6=B3=95=E6=8B=89?=
+ =?UTF-8?q?=E8=B5=B7android=20app?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ packages/flutter_tools/lib/src/application_package.dart | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/packages/flutter_tools/lib/src/application_package.dart b/packages/flutter_tools/lib/src/application_package.dart
+index fc168971e..67b5f8669 100644
+--- a/packages/flutter_tools/lib/src/application_package.dart
++++ b/packages/flutter_tools/lib/src/application_package.dart
+@@ -429,7 +429,10 @@ class ApkManifestData {
+     _Element launchActivity;
+     for (_Element activity in activities) {
+       final _Attribute enabled = activity.firstAttribute('android:enabled');
+-      if (enabled == null || enabled.value.contains('0xffffffff')) {
++      final _Attribute activityName = activity.firstAttribute('android:name');
++      if ((enabled == null || enabled.value.contains('0xffffffff') )
++          && !activityName.value.toLowerCase().contains('debug')
++          && !activityName.value.toLowerCase().contains('devtest')) {
+         launchActivity = activity;
+         break;
+       }
+-- 
+2.18.0
+

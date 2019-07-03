@@ -1,0 +1,29 @@
+From fa208b164fffe02af542be012c1c199a3bcc35b3 Mon Sep 17 00:00:00 2001
+From: KyleWong <kang.wang1988@gmail.com>
+Date: Sun, 23 Dec 2018 16:50:29 +0800
+Subject: [PATCH] Workaround for android eglCreateContext fail.
+
+---
+ shell/platform/android/android_context_gl.cc | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/shell/platform/android/android_context_gl.cc b/shell/platform/android/android_context_gl.cc
+index bb4e7b653..2878d1087 100644
+--- a/shell/platform/android/android_context_gl.cc
++++ b/shell/platform/android/android_context_gl.cc
+@@ -65,6 +65,12 @@ static EGLResult<EGLSurface> CreateContext(EGLDisplay display,
+   EGLint attributes[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
+ 
+   EGLContext context = eglCreateContext(display, config, share, attributes);
++  if (context == EGL_NO_CONTEXT) {
++    EGLint last_error = eglGetError();
++    if (last_error == EGL_BAD_MATCH && share != EGL_NO_CONTEXT) {
++      context = eglCreateContext(display, config, EGL_NO_CONTEXT, attributes);
++    }
++  }
+ 
+   return {context != EGL_NO_CONTEXT, context};
+ }
+-- 
+2.17.2 (Apple Git-113)
+

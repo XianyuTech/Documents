@@ -1,0 +1,25 @@
+From 89cee4b62569b9138425443f67b6f126246bd641 Mon Sep 17 00:00:00 2001
+From: KyleWong <kang.wang1988@gmail.com>
+Date: Fri, 21 Dec 2018 21:16:56 +0800
+Subject: [PATCH] Enable git track for bin/cache.
+
+---
+ .gitignore | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/.gitignore b/.gitignore
+index c130db31f..978225f3a 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -20,7 +20,7 @@
+ .vscode/
+ 
+ # Flutter repo-specific
+-/bin/cache/
++# /bin/cache/
+ /bin/mingit/
+ /dev/benchmarks/mega_gallery/
+ /dev/bots/.recipe_deps
+-- 
+2.17.2 (Apple Git-113)
+

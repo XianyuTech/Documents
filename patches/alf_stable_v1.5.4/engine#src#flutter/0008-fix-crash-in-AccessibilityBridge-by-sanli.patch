@@ -1,0 +1,74 @@
+From 006755f191e30190ac35cfff588ee6f8b9bd6cf2 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=E4=B8=89=E8=8E=85?= <sanli.ttt@alibaba-inc.com>
+Date: Mon, 3 Jun 2019 14:02:26 +0800
+Subject: [PATCH] fix crash
+
+---
+ .../platform/android/io/flutter/view/AccessibilityBridge.java | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/shell/platform/android/io/flutter/view/AccessibilityBridge.java b/shell/platform/android/io/flutter/view/AccessibilityBridge.java
+index c0035399d..6e6d5338f 100644
+--- a/shell/platform/android/io/flutter/view/AccessibilityBridge.java
++++ b/shell/platform/android/io/flutter/view/AccessibilityBridge.java
+@@ -1453,7 +1453,9 @@ public class AccessibilityBridge extends AccessibilityNodeProvider {
+             return;
+         }
+         // TODO(mattcarroll): why are we explicitly talking to the root view's parent?
+-        rootAccessibilityView.getParent().requestSendAccessibilityEvent(rootAccessibilityView, event);
++        if (rootAccessibilityView.getParent()!=null) {
++            rootAccessibilityView.getParent().requestSendAccessibilityEvent(rootAccessibilityView, event);
++        }
+     }
+
+     /**
+--
+
+
+@@ -2045,7 +2045,9 @@ public class AccessibilityBridge extends AccessibilityNodeProvider {
+                 if (globalTransform == null) {
+                     globalTransform = new float[16];
+                 }
+-                Matrix.multiplyMM(globalTransform, 0, ancestorTransform, 0, transform, 0);
++                if (globalTransform!=null && ancestorTransform!=null && transform!=null) {
++                    Matrix.multiplyMM(globalTransform, 0, ancestorTransform, 0, transform, 0);
++                }
+
+                 final float[] sample = new float[4];
+                 sample[2] = 0;
+--
+
+
+@@ -1125,10 +1125,13 @@ public class AccessibilityBridge extends AccessibilityNodeProvider {
+             return false;
+         }
+
+-        SemanticsNode semanticsNodeUnderCursor = getRootSemanticsNode().hitTest(new float[] {event.getX(), event.getY(), 0, 1});
+-        if (semanticsNodeUnderCursor.platformViewId != -1) {
+-            return accessibilityViewEmbedder.onAccessibilityHoverEvent(semanticsNodeUnderCursor.id, event);
++        if (getRootSemanticsNode()!=null){
++            SemanticsNode semanticsNodeUnderCursor = getRootSemanticsNode().hitTest(new float[] {event.getX(), event.getY(), 0, 1});
++            if (semanticsNodeUnderCursor.platformViewId != -1) {
++                return accessibilityViewEmbedder.onAccessibilityHoverEvent(semanticsNodeUnderCursor.id, event);
++            }
+         }
++
+
+         if (event.getAction() == MotionEvent.ACTION_HOVER_ENTER || event.getAction() == MotionEvent.ACTION_HOVER_MOVE) {
+             handleTouchExploration(event.getX(), event.getY());
+--
+
+
+@@ -507,7 +507,9 @@ public class AccessibilityBridge extends AccessibilityNodeProvider {
+             // For platform views we delegate the node creation to the accessibility view embedder.
+             View embeddedView = platformViewsAccessibilityDelegate.getPlatformViewById(semanticsNode.platformViewId);
+             Rect bounds = semanticsNode.getGlobalRect();
+-            return accessibilityViewEmbedder.getRootNode(embeddedView, semanticsNode.id, bounds);
++            if (embeddedView!=null && bounds!=null) {
++                return accessibilityViewEmbedder.getRootNode(embeddedView, semanticsNode.id, bounds);
++            }
+         }
+
+         AccessibilityNodeInfo result = AccessibilityNodeInfo.obtain(rootAccessibilityView, virtualViewId);
+-- 
+2.18.0

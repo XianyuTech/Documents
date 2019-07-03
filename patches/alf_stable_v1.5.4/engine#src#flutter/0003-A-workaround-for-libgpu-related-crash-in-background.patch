@@ -1,0 +1,277 @@
+From fe6790122d8f61b15f0a5b17a90ff62ca0a99f16 Mon Sep 17 00:00:00 2001
+From: KyleWong <kang.wang1988@gmail.com>
+Date: Sat, 22 Dec 2018 23:25:10 +0800
+Subject: [PATCH] A workaround for libgpu related crash in background .
+
+---
+ fml/message_loop_impl.cc                      | 26 ++++++--
+ fml/message_loop_impl.h                       | 17 ++++-
+ fml/task_runner.cc                            |  8 +++
+ fml/task_runner.h                             |  2 +
+ shell/common/shell.cc                         |  8 +++
+ .../framework/Source/FlutterViewController.mm | 62 +++++++++++++++++++
+ 6 files changed, 116 insertions(+), 7 deletions(-)
+
+diff --git a/fml/message_loop_impl.cc b/fml/message_loop_impl.cc
+index 4d2c5bf4f..dd2b05cd1 100644
+--- a/fml/message_loop_impl.cc
++++ b/fml/message_loop_impl.cc
+@@ -39,7 +39,8 @@ fml::RefPtr<MessageLoopImpl> MessageLoopImpl::Create() {
+ #endif
+ }
+ 
+-MessageLoopImpl::MessageLoopImpl() : order_(0), terminated_(false) {}
++MessageLoopImpl::MessageLoopImpl()
++    : order_(0), terminated_(false), task_limit_per_looprun_(10000) {}
+ 
+ MessageLoopImpl::~MessageLoopImpl() = default;
+ 
+@@ -116,25 +117,34 @@ void MessageLoopImpl::RunExpiredTasks() {
+   TRACE_EVENT0("fml", "MessageLoop::RunExpiredTasks");
+   std::vector<fml::closure> invocations;
+ 
++  int i_tasks_cnt = 0;
++  bool need_call_run_again = false;
++  auto now = fml::TimePoint::Now();
++
+   {
+     std::lock_guard<std::mutex> lock(delayed_tasks_mutex_);
+ 
+-    if (delayed_tasks_.empty()) {
++    if (delayed_tasks_.empty() || !IsMessageLoopEnabled()) {
+       return;
+     }
+ 
+-    auto now = fml::TimePoint::Now();
+-    while (!delayed_tasks_.empty()) {
++    is_runninging_expired_tasks_ = true;
++    while (!delayed_tasks_.empty() && i_tasks_cnt < task_limit_per_looprun_) {
+       const auto& top = delayed_tasks_.top();
+       if (top.target_time > now) {
+         break;
+       }
+       invocations.emplace_back(std::move(top.task));
+       delayed_tasks_.pop();
++      i_tasks_cnt++;
+     }
+ 
+-    WakeUp(delayed_tasks_.empty() ? fml::TimePoint::Max()
+-                                  : delayed_tasks_.top().target_time);
++    if (i_tasks_cnt >= task_limit_per_looprun_ && !delayed_tasks_.empty()) {
++      need_call_run_again = true;
++    } else {
++      WakeUp(delayed_tasks_.empty() ? fml::TimePoint::Max()
++                                    : delayed_tasks_.top().target_time);
++    }
+   }
+ 
+   for (const auto& invocation : invocations) {
+@@ -143,6 +153,10 @@ void MessageLoopImpl::RunExpiredTasks() {
+       observer.second();
+     }
+   }
++  is_runninging_expired_tasks_ = false;
++  if (need_call_run_again) {
++    RunExpiredTasks();
++  }
+ }
+ 
+ MessageLoopImpl::DelayedTask::DelayedTask(size_t p_order,
+diff --git a/fml/message_loop_impl.h b/fml/message_loop_impl.h
+index 9dab218d0..0a89161cb 100644
+--- a/fml/message_loop_impl.h
++++ b/fml/message_loop_impl.h
+@@ -42,6 +42,18 @@ class MessageLoopImpl : public fml::RefCountedThreadSafe<MessageLoopImpl> {
+ 
+   void DoTerminate();
+ 
++  void EnableMessageLoop(bool isEnable) { is_loop_enabled_ = isEnable; }
++
++  void SetTaskLimitPerLoopRun(int task_limit_per_looprun) {
++    task_limit_per_looprun_ = task_limit_per_looprun;
++  }
++
++  inline bool IsMessageLoopEnabled() { return is_loop_enabled_; }
++
++  inline bool IsRunningingExpiredTasks() {
++    return is_runninging_expired_tasks_;
++  }
++
+   // Exposed for the embedder shell which allows clients to poll for events
+   // instead of dedicating a thread to the message loop.
+   void RunExpiredTasksNow();
+@@ -73,13 +85,16 @@ class MessageLoopImpl : public fml::RefCountedThreadSafe<MessageLoopImpl> {
+ 
+   using DelayedTaskQueue = std::
+       priority_queue<DelayedTask, std::deque<DelayedTask>, DelayedTaskCompare>;
+-
++  bool is_loop_enabled_ = true;
+   std::map<intptr_t, fml::closure> task_observers_;
+   std::mutex delayed_tasks_mutex_;
+   DelayedTaskQueue delayed_tasks_;
+   size_t order_;
+   std::atomic_bool terminated_;
+ 
++  bool is_runninging_expired_tasks_;
++  int task_limit_per_looprun_;
++
+   void RegisterTask(fml::closure task, fml::TimePoint target_time);
+ 
+   void RunExpiredTasks();
+diff --git a/fml/task_runner.cc b/fml/task_runner.cc
+index 2c4cfe4b6..58b1bad46 100644
+--- a/fml/task_runner.cc
++++ b/fml/task_runner.cc
+@@ -39,6 +39,14 @@ bool TaskRunner::RunsTasksOnCurrentThread() {
+   return MessageLoop::GetCurrent().GetLoopImpl() == loop_;
+ }
+ 
++void TaskRunner::EnableMessageLoop(bool isEnable) {
++  loop_->EnableMessageLoop(isEnable);
++}
++
++MessageLoopImpl* TaskRunner::getMessageLoop() {
++  return loop_.get();
++}
++
+ void TaskRunner::RunNowOrPostTask(fml::RefPtr<fml::TaskRunner> runner,
+                                   fml::closure task) {
+   FML_DCHECK(runner);
+diff --git a/fml/task_runner.h b/fml/task_runner.h
+index 04696752c..60a23c1ea 100644
+--- a/fml/task_runner.h
++++ b/fml/task_runner.h
+@@ -24,6 +24,8 @@ class TaskRunner : public fml::RefCountedThreadSafe<TaskRunner> {
+   virtual void PostDelayedTask(fml::closure task, fml::TimeDelta delay);
+ 
+   virtual bool RunsTasksOnCurrentThread();
++  void EnableMessageLoop(bool isEnable);
++  MessageLoopImpl* getMessageLoop();
+ 
+   virtual ~TaskRunner();
+ 
+diff --git a/shell/common/shell.cc b/shell/common/shell.cc
+index 4adf55a3f..4503059be 100644
+--- a/shell/common/shell.cc
++++ b/shell/common/shell.cc
+@@ -981,6 +981,14 @@ Rasterizer::Screenshot Shell::Screenshot(
+     Rasterizer::ScreenshotType screenshot_type,
+     bool base64_encode) {
+   TRACE_EVENT0("flutter", "Shell::Screenshot");
++  fml::TaskRunner* taskRunner =
++      (fml::TaskRunner*)this->GetTaskRunners().GetUITaskRunner().get();
++  taskRunner->EnableMessageLoop(true);
++
++  taskRunner =
++      (fml::TaskRunner*)this->GetTaskRunners().GetGPUTaskRunner().get();
++  taskRunner->EnableMessageLoop(true);
++
+   fml::AutoResetWaitableEvent latch;
+   Rasterizer::Screenshot screenshot;
+   fml::TaskRunner::RunNowOrPostTask(
+diff --git a/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm b/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+index ea8beaaa0..43f74c8ee 100644
+--- a/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
++++ b/shell/platform/darwin/ios/framework/Source/FlutterViewController.mm
+@@ -9,8 +9,10 @@
+ 
+ #include <memory>
+ 
++#include "flutter/common/task_runners.h"
+ #include "flutter/fml/memory/weak_ptr.h"
+ #include "flutter/fml/message_loop.h"
++#include "flutter/fml/message_loop_impl.h"
+ #include "flutter/fml/platform/darwin/platform_version.h"
+ #include "flutter/fml/platform/darwin/scoped_nsobject.h"
+ #include "flutter/shell/common/thread_host.h"
+@@ -119,6 +121,14 @@ - (void)performCommonViewControllerInitialization {
+ 
+   _touchTrackerSet = [[NSMutableSet set] retain];
+   _touchTrackerDict = [[NSMutableDictionary dictionary] retain];
++
++  fml::MessageLoopImpl* gpuLoop =
++      ((fml::TaskRunner*)[self getTaskRunners].GetGPUTaskRunner().get())->getMessageLoop();
++  gpuLoop->SetTaskLimitPerLoopRun(10);
++  fml::MessageLoopImpl* ioLoop =
++      ((fml::TaskRunner*)[self getTaskRunners].GetIOTaskRunner().get())->getMessageLoop();
++  ioLoop->SetTaskLimitPerLoopRun(10);
++
+   [self setupNotificationCenterObservers];
+ }
+ 
+@@ -378,6 +388,7 @@ - (void)setFlutterViewDidRenderCallback:(void (^)(void))callback {
+ 
+ - (void)surfaceUpdated:(BOOL)appeared {
+   // NotifyCreated/NotifyDestroyed are synchronous and require hops between the UI and GPU thread.
++  [self setEnableForRunnersBatch:YES];
+   if (appeared) {
+     [self installSplashScreenViewCallback];
+     [_engine.get() platformViewsController] -> SetFlutterView(_flutterView.get());
+@@ -385,6 +396,7 @@ - (void)surfaceUpdated:(BOOL)appeared {
+   } else {
+     [_engine.get() platformView] -> NotifyDestroyed();
+     [_engine.get() platformViewsController] -> SetFlutterView(nullptr);
++    [self disableGPUOperation];
+   }
+ }
+ 
+@@ -465,6 +477,56 @@ - (void)applicationWillEnterForeground:(NSNotification*)notification {
+   [[_engine.get() lifecycleChannel] sendMessage:@"AppLifecycleState.inactive"];
+ }
+ 
++- (blink::TaskRunners)getTaskRunners {
++  return ([_engine.get() shell].GetTaskRunners());
++}
++
++- (void)disableGPUOperation {
++  [[_engine.get() lifecycleChannel] sendMessage:@"AppLifecycleState.paused"];
++  //暂时通过延时来等待GL操作结束(否则进入后台后的GL操作会闪退)
++  NSDate* date = [NSDate date];
++  double delayMax = 8;  //最多等8S
++  fml::MessageLoopImpl* gpuLoop =
++      ((fml::TaskRunner*)[self getTaskRunners].GetGPUTaskRunner().get())->getMessageLoop();
++  fml::MessageLoopImpl* ioLoop =
++      ((fml::TaskRunner*)[self getTaskRunners].GetIOTaskRunner().get())->getMessageLoop();
++  while (true) {
++    //两个TaskRunner没内容了，好，可以退出
++    if (!gpuLoop->IsRunningingExpiredTasks() && !ioLoop->IsRunningingExpiredTasks())
++      break;
++    //超时退出
++    if ([[NSDate date] timeIntervalSinceDate:date] > delayMax)
++      break;
++    [NSThread sleepUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.2]];
++  }
++  [self setEnableForRunnersBatch:FALSE];
++}
++
++- (void)enableMessageLoop:(bool)isEnable forTaskRunner:(NSString*)aTaskRunnerId {
++  if ([@"io.flutter.io" caseInsensitiveCompare:aTaskRunnerId] == NSOrderedSame) {
++    fml::TaskRunner* taskRunner = (fml::TaskRunner*)[self getTaskRunners].GetIOTaskRunner().get();
++    taskRunner->EnableMessageLoop(isEnable);
++  }
++  if ([@"io.flutter.ui" caseInsensitiveCompare:aTaskRunnerId] == NSOrderedSame) {
++    fml::TaskRunner* taskRunner = (fml::TaskRunner*)[self getTaskRunners].GetUITaskRunner().get();
++    taskRunner->EnableMessageLoop(isEnable);
++  }
++  if ([@"io.flutter.gpu" caseInsensitiveCompare:aTaskRunnerId] == NSOrderedSame) {
++    fml::TaskRunner* taskRunner = (fml::TaskRunner*)[self getTaskRunners].GetGPUTaskRunner().get();
++    taskRunner->EnableMessageLoop(isEnable);
++  }
++  if ([@"io.flutter.platform" caseInsensitiveCompare:aTaskRunnerId] == NSOrderedSame) {
++    fml::TaskRunner* taskRunner =
++        (fml::TaskRunner*)[self getTaskRunners].GetPlatformTaskRunner().get();
++    taskRunner->EnableMessageLoop(isEnable);
++  }
++}
++
++- (void)setEnableForRunnersBatch:(BOOL)enable {
++  [self enableMessageLoop:enable forTaskRunner:@"io.flutter.gpu"];
++  [self enableMessageLoop:enable forTaskRunner:@"io.flutter.io"];
++}
++
+ #pragma mark - Touch event handling
+ 
+ static blink::PointerData::Change PointerDataChangeFromUITouchPhase(UITouchPhase phase) {
+-- 
+2.17.2 (Apple Git-113)
+

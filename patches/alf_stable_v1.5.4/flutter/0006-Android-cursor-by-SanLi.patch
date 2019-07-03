@@ -1,0 +1,72 @@
+From 5635c4685efb894df6f12c983550093757e6efa2 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=E4=B8=89=E8=8E=85?= <sanli.ttt@alibaba-inc.com>
+Date: Mon, 24 Jun 2019 10:35:22 +0800
+Subject: [PATCH] =?UTF-8?q?=E4=BF=AE=E6=94=B9android=E5=85=89=E6=A0=87?=
+ =?UTF-8?q?=E9=95=BF=E5=BA=A6?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../flutter/lib/src/rendering/editable.dart   | 22 +++++++++++++++++--
+ 1 files changed, 13 insertions(+), 2 deletions(-)
+
+diff --git a/packages/flutter/lib/src/rendering/editable.dart b/packages/flutter/lib/src/rendering/editable.dart
+index a3e12d26c..389dc6d5f 100644
+--- a/packages/flutter/lib/src/rendering/editable.dart
++++ b/packages/flutter/lib/src/rendering/editable.dart
+@@ -1506,13 +1506,15 @@ class RenderEditable extends RenderBox {
+   /// of the cursor for iOS is approximate and obtained through an eyeball
+   /// comparison.
+   Rect get _getCaretPrototype {
+     switch(defaultTargetPlatform){
+       case TargetPlatform.iOS:
+         return Rect.fromLTWH(0.0, -_kCaretHeightOffset + .5, cursorWidth, preferredLineHeight + 2);
+       default:
+-        return Rect.fromLTWH(0.0, _kCaretHeightOffset, cursorWidth, preferredLineHeight - 2.0 * _kCaretHeightOffset);
++        return Rect.fromLTWH(0.0, _kCaretHeightOffset, cursorWidth, preferredLineHeight);
+     }
+   }
++
+   @override
+   void performLayout() {
+     _layoutText(constraints.maxWidth);
+@@ -1544,6 +1546,7 @@ class RenderEditable extends RenderBox {
+     return Offset(pixelPerfectOffsetX, pixelPerfectOffsetY);
+   }
+
++  //这里是光标位置的重点
+   void _paintCaret(Canvas canvas, Offset effectiveOffset, TextPosition textPosition) {
+     assert(_textLayoutLastWidth == constraints.maxWidth);
+
+@@ -1552,7 +1555,9 @@ class RenderEditable extends RenderBox {
+     final Paint paint = Paint()
+       ..color = _floatingCursorOn ? backgroundCursorColor : _cursorColor;
+     final Offset caretOffset = _textPainter.getOffsetForCaret(textPosition, _caretPrototype) + effectiveOffset;
+     Rect caretRect = _caretPrototype.shift(caretOffset);
+     if (_cursorOffset != null)
+       caretRect = caretRect.shift(_cursorOffset);
+
+@@ -1569,10 +1574,23 @@ class RenderEditable extends RenderBox {
+         caretRect.width,
+         _textPainter.getFullHeightForCaret(textPosition, _caretPrototype),
+       );
++    }else if (defaultTargetPlatform != TargetPlatform.iOS && _textPainter.getFullHeightForCaret(textPosition, _caretPrototype) == null){
++      caretRect = Rect.fromLTWH(
++        caretRect.left,
++        // Offset by _kCaretHeightOffset to counteract the same value added in
++        // _getCaretPrototype. This prevents this from scaling poorly for small
++        // font sizes.
++        caretRect.top - _kCaretHeightOffset,
++        caretRect.width,
++        caretRect.height,
++      );
+     }
+
+     caretRect = caretRect.shift(_getPixelPerfectCursorOffset(caretRect));
+-
+     if (cursorRadius == null) {
+       canvas.drawRect(caretRect, paint);
+     } else {
+--
+2.18.0

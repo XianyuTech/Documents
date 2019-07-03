@@ -1,0 +1,49 @@
+From fab9ee0a73dbe31ce9d90953fd8c327598409f42 Mon Sep 17 00:00:00 2001
+From: KyleWong <kang.wang1988@gmail.com>
+Date: Sat, 22 Dec 2018 11:09:59 +0800
+Subject: [PATCH] FocusNode adds api to disableKeyboard.
+
+---
+ packages/flutter/lib/src/widgets/editable_text.dart | 2 +-
+ packages/flutter/lib/src/widgets/focus_manager.dart | 5 ++++-
+ 2 files changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/packages/flutter/lib/src/widgets/editable_text.dart b/packages/flutter/lib/src/widgets/editable_text.dart
+index e4ed2b0d1..fd5a5c5a7 100644
+--- a/packages/flutter/lib/src/widgets/editable_text.dart
++++ b/packages/flutter/lib/src/widgets/editable_text.dart
+@@ -696,7 +696,7 @@ class EditableTextState extends State<EditableText> with AutomaticKeepAliveClien
+   /// focus, the control will then attach to the keyboard and request that the
+   /// keyboard become visible.
+   void requestKeyboard() {
+-    if (_hasFocus)
++    if (_hasFocus && !widget.focusNode.disableKeyboard)
+       _openInputConnection();
+     else
+       FocusScope.of(context).requestFocus(widget.focusNode);
+diff --git a/packages/flutter/lib/src/widgets/focus_manager.dart b/packages/flutter/lib/src/widgets/focus_manager.dart
+index 3453c2641..2bb9a13fe 100644
+--- a/packages/flutter/lib/src/widgets/focus_manager.dart
++++ b/packages/flutter/lib/src/widgets/focus_manager.dart
+@@ -43,6 +43,9 @@ class FocusNode extends ChangeNotifier {
+   FocusManager _manager;
+   bool _hasKeyboardToken = false;
+ 
++  /// Whether the keyboard is disabled especially when there is a custom keyboard
++  bool disableKeyboard = false;
++
+   /// Whether this node has the overall focus.
+   ///
+   /// A [FocusNode] has the overall focus when the node is focused in its
+@@ -74,7 +77,7 @@ class FocusNode extends ChangeNotifier {
+   ///
+   /// Returns whether this function successfully consumes a keyboard token.
+   bool consumeKeyboardToken() {
+-    if (!_hasKeyboardToken)
++    if (!_hasKeyboardToken || disableKeyboard)
+       return false;
+     _hasKeyboardToken = false;
+     return true;
+-- 
+2.17.2 (Apple Git-113)
+
