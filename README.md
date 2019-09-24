@@ -21,7 +21,7 @@
 
 Android：
 
-参见:script/android_engine_symbolicate.py(-h获取具体用法)
+参见:[Symbolicate the crash](https://github.com/flutter/flutter/wiki/Crashes)
 
 ## 自定义构建替换flutter自带的snapshots
 目前在flutter/bin/cache/dart-sdk/bin/snapshots目录下，存在多个flutter自带的snapshots。
